@@ -14,27 +14,22 @@ STOP = False
 
 @unique
 class MessageType(Enum):
+    M_NONE = 0
     M_TEXT = 1
     M_CALLBACK = 2
     M_COMMAND = 3
 
 @dataclass
-class Workers:
-    current_count: int
-    count: int
-    mu: object
-
-@dataclass
 class Message:
-    first_name: str
-    username: str
-    id_: str
-    chat_id: str
-    text: str
-    type_m: MessageType
-    message_id: str
-    data: str
-    callback_query_id: str
+    first_name: str = ""
+    username: str = ""
+    id_: str = ""
+    chat_id: str = ""
+    text: str = ""
+    type_m: MessageType = MessageType.M_NONE
+    message_id: str = ""
+    data: str = ""
+    callback_query_id: str = ""
 
 @dataclass
 class InlineKeyboardButton:
@@ -73,19 +68,20 @@ def DataclassJSONEncoder(obj):
         return items
 
 def CALLBACK(func):
-    def worker_out(message, worker):
-        func(message, worker)
+    async def worker_out(message, worker):
+        await func(message, worker)
         worker.mu.acquire()
         worker.current_count -= 1
         worker.mu.release()
     return worker_out
 
-def Exec(request_type:str, message:Message, text:str, params) -> int:
+async def Exec(request_type:str, message:Message, text:str, params={}) -> int:
     URL = METHODS_URL + request_type
 
     data = None
     if request_type == "sendMessage":
         if text == "": return 1
+        if message.chat_id == "": return 2
         data = { "chat_id": message.chat_id, "text": text}
         if "reply_markup" in params:
             data["reply_markup"] = jdumps(DataclassJSONEncoder(params["reply_markup"]))
@@ -93,27 +89,27 @@ def Exec(request_type:str, message:Message, text:str, params) -> int:
         # повторяется, т.к. в дальнейшем будут добавлены методы, в которых
         # это поле может быть пустым
         if text == "": return 1
+        if message.chat_id == "" or message.message_id == "": return 2
         data = {"chat_id": message.chat_id, "message_id": message.message_id, "text": text}
         if "reply_markup" in params:
             data["reply_markup"] = jdumps(DataclassJSONEncoder(params["reply_markup"]))
 
-    resp = rpost(URL, data=data)
-    if not resp.ok:
-        print(resp.text)
-        return 3
+    async with aiohttp.ClientSession() as session:
+        async with session.post(URL, data=data) as resp:
+            pass
+    
     return 0
 
 async def Controller(workers, queue, stopMessage, callback):
     global UPDATE_ID, STOP
 
-    worker = Workers(0, workers, tLock())
-
     while True:
         resp_data = await queue.get()
         type_m = MessageType.M_TEXT
+        tasks  = []
+        #async with aiohttp.ClientSession() as session:
         for message in resp_data:
             await asyncio.sleep(0.01)
-            while worker.current_count == worker.count: await asyncio.sleep(0.01)
             type_m = MessageType.M_TEXT
             data = ""
             callback_query_id = ""
@@ -144,18 +140,22 @@ async def Controller(workers, queue, stopMessage, callback):
                 STOP = True
                 break
 
-            worker.current_count += 1
-            tThread(target=callback, args=(Message(
+    
+            if len(tasks) == workers:
+                await asyncio.gather(*tasks)
+            tasks.append(asyncio.ensure_future(callback(Message(
                 from_["first_name"],
                 from_["username"],
-                from_["id"],
-                chat["id"],
+                str(from_["id"]),
+                str(chat["id"]),
                 message_["text"],
                 type_m,
-                message_["message_id"],
+                str(message_["message_id"]),
                 data,
                 callback_query_id
-                ), worker,)).start()
+                )
+                )))
+
         if STOP: break
         if len(resp_data) > 0:
             UPDATE_ID = resp_data[-1]["update_id"]
@@ -179,7 +179,9 @@ async def GetUpdate(queue, delay):
             await asyncio.sleep(delay)
             if STOP: break
 
-async def Main(callback, workers:int, stopMessage:str, delay:int):
+async def Listener(token:str, callback, workers=1, stopMessage="exit", delay=0.5):
+    global METHODS_URL
+    METHODS_URL += token+"/"
     queue = asyncio.Queue()
 
     await asyncio.gather(
@@ -187,14 +189,9 @@ async def Main(callback, workers:int, stopMessage:str, delay:int):
             GetUpdate(queue, delay)
             )
 
-def Listener(token:str, callback, workers=1, stopMessage="exit", delay=0.5):
-    global METHODS_URL
-    METHODS_URL += token+"/"
+    #asyncio.run(Main(callback, workers, stopMessage, delay))
 
-    asyncio.run(Main(callback, workers, stopMessage, delay))
-
-@CALLBACK
-def testCallback(message, worker):
+async def testCallback(message):
     buttons = []
     s = ""
     if message.type_m == MessageType.M_TEXT:
@@ -212,12 +209,12 @@ def testCallback(message, worker):
                 ]
         s = "editMessageText"
     reply_markup = InlineKeyboardMarkup(buttons)
-    result = Exec(s, message, "Тестовое сообщение", {"reply_markup": reply_markup})
+    result = await Exec(s, message, "Тестовое сообщение", {"reply_markup": reply_markup})
     print("exec result", result)
 
 def test():
-    token = ""
-    Listener(token, testCallback, 3, "quit")
+    token = "1850261155:AAEpFCdbIsfA5VJXrHrRTGHOdJBd5fvoqqE"
+    asyncio.run(Listener(token, testCallback, 3, "quit"))
 
 if __name__ == "__main__":
     test()
