@@ -1,1 +1,7 @@
-from .Bot import Listener, MessageType, Message, Exec
+from .Bot import Listener, \
+        MessageType, \
+        Message, \
+        Exec, \
+        InlineKeyboardMarkup, \
+        InlineKeyboardButton, \
+        SetToken

@@ -85,6 +85,10 @@ async def Exec(request_type:str, message:Message, text:str, params={}) -> int:
         data = { "chat_id": message.chat_id, "text": text}
         if "reply_markup" in params:
             data["reply_markup"] = jdumps(DataclassJSONEncoder(params["reply_markup"]))
+        if "entities" in params:
+            data["entities"] = params["entities"]
+        if "parse_mode" in params:
+            data["parse_mode"] = params["parse_mode"]
     elif request_type == "editMessageText":
         # повторяется, т.к. в дальнейшем будут добавлены методы, в которых
         # это поле может быть пустым
@@ -93,10 +97,11 @@ async def Exec(request_type:str, message:Message, text:str, params={}) -> int:
         data = {"chat_id": message.chat_id, "message_id": message.message_id, "text": text}
         if "reply_markup" in params:
             data["reply_markup"] = jdumps(DataclassJSONEncoder(params["reply_markup"]))
-
+    #from json import loads
     async with aiohttp.ClientSession() as session:
         async with session.post(URL, data=data) as resp:
             pass
+            #print(loads(await resp.read()))
     
     return 0
 
@@ -164,24 +169,34 @@ async def Controller(workers, queue, stopMessage, callback):
 async def GetUpdate(queue, delay):
     global UPDATE_ID, METHODS_URL, STOP
 
-    async with aiohttp.ClientSession() as session:
-        while True:
-            if UPDATE_ID == 0:
-                request = lambda: session.get(METHODS_URL+"getUpdates")
-            else:
-                request = lambda: session.post(METHODS_URL+"getUpdates", data={
-                        "offset": UPDATE_ID + 1
-                    })
-            async with request() as resp:
-                data = await resp.json()
-                if "result" in data and len(data["result"]) > 0:
-                    await queue.put(data["result"])
-            await asyncio.sleep(delay)
-            if STOP: break
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                while True:
+                    if UPDATE_ID == 0:
+                        request = lambda: session.get(METHODS_URL+"getUpdates")
+                    else:
+                        request = lambda: session.post(METHODS_URL+"getUpdates", data={
+                                "offset": UPDATE_ID + 1
+                            })
+                    async with request() as resp:
+                        data = await resp.json()
+                        if "result" in data and len(data["result"]) > 0:
+                            await queue.put(data["result"])
+                    await asyncio.sleep(delay)
+                    if STOP: break
+        except: continue
+        if STOP: break
 
-async def Listener(token:str, callback, workers=1, stopMessage="exit", delay=0.5):
+def SetToken(token: str) -> int:
     global METHODS_URL
     METHODS_URL += token+"/"
+    return 0
+
+async def Listener(callback, workers=1, stopMessage="exit", delay=0.5, token:str=""):
+    if token != "":
+        global METHODS_URL
+        METHODS_URL += token+"/"
     queue = asyncio.Queue()
 
     await asyncio.gather(
