@@ -4,8 +4,6 @@ import aiohttp
 import asyncio
 from dataclasses import dataclass, is_dataclass as dis_dataclass, asdict as dasdict
 from enum import Enum, unique
-from threading import Lock as tLock, Thread as tThread
-from requests import post as rpost
 from json import dumps as jdumps
 
 METHODS_URL = "https://api.telegram.org/bot"
@@ -97,11 +95,10 @@ async def Exec(request_type:str, message:Message, text:str, params={}) -> int:
         data = {"chat_id": message.chat_id, "message_id": message.message_id, "text": text}
         if "reply_markup" in params:
             data["reply_markup"] = jdumps(DataclassJSONEncoder(params["reply_markup"]))
-    #from json import loads
     async with aiohttp.ClientSession() as session:
         async with session.post(URL, data=data) as resp:
             pass
-            #print(loads(await resp.read()))
+            #print(await resp.json())
     
     return 0
 
@@ -228,7 +225,7 @@ async def testCallback(message):
     print("exec result", result)
 
 def test():
-    token = "1850261155:AAEpFCdbIsfA5VJXrHrRTGHOdJBd5fvoqqE"
+    token = ""
     asyncio.run(Listener(token, testCallback, 3, "quit"))
 
 if __name__ == "__main__":
