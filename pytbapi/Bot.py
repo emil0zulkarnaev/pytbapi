@@ -141,13 +141,16 @@ async def Controller(workers, queue, stopMessage, callback):
             if message_["text"] == stopMessage:
                 STOP = True
                 break
-
+            
+            username_ = ''
+            if "username" in from_: username_ = from_["username"]
+            elif "last_name" in from_: username_ = from_["last_name"]
     
             if len(tasks) == workers:
                 await asyncio.gather(*tasks)
             tasks.append(asyncio.ensure_future(callback(Message(
                 from_["first_name"],
-                from_["username"],
+                username_,
                 str(from_["id"]),
                 str(chat["id"]),
                 message_["text"],
